@@ -5,6 +5,10 @@ from ai_player import decide_move
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
+@app.route('/', methods=['GET', 'HEAD'])
+def index():
+    return 'OK', 200
+
 @app.route('/api/ai_move', methods=['POST'])
 def get_ai_move():
     try:
