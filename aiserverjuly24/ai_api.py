@@ -3,7 +3,7 @@ from flask_cors import CORS
 from ai_player import decide_move
 
 app = Flask(__name__)
-CORS(app, origins="*")  # ← これが重要
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 @app.route('/api/ai_move', methods=['POST'])
 def get_ai_move():
