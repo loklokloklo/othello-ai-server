@@ -26,7 +26,4 @@ def get_ai_move():
         return jsonify({'error': str(e)}), 400
 
 if __name__ == '__main__':
-    import os
-    port = int(os.environ.get('PORT', 5000))  # Renderが提供するPORTを使う
-    app.run(host='0.0.0.0', port=port, debug=True)
-
+    app.run(host='0.0.0.0', port=10000, debug=True)
