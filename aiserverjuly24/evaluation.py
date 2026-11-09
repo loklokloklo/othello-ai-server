@@ -16,21 +16,43 @@ WEIGHTS = {
 #角のリスト
 CORNERS = [(x, y, z) for x in [0, 3] for y in [0, 3] for z in [0, 3]]
 
+# ========================================
+# 確定石判定の高速化用：事前計算（起動時に1回だけ実行）
+# ========================================
+ALL_CELLS = list(product(range(4), range(4), range(4)))
+
+# 盤内に収まる長さ4のライン（逆向きの重複は除いた全ライン）
+LINES = []
+_seen_lines = set()
+for _dx, _dy, _dz in DIRECTIONS:
+    for _x, _y, _z in ALL_CELLS:
+        _line = [(_x + i * _dx, _y + i * _dy, _z + i * _dz) for i in range(4)]
+        if all(is_on_board(*c) for c in _line):
+            _key = tuple(sorted(_line))
+            if _key not in _seen_lines:
+                _seen_lines.add(_key)
+                LINES.append(tuple(_line))
+
+# 各マスの隣接マス（26近傍のうち盤内のもの）
+NEIGHBORS = {
+    (x, y, z): [
+        (x + dx, y + dy, z + dz)
+        for dx, dy, dz in DIRECTIONS
+        if is_on_board(x + dx, y + dy, z + dz)
+    ]
+    for x, y, z in ALL_CELLS
+}
+
 def get_stable_discs(board, player):
-    size = 4
     stable = set()
 
     def is_player_disc(x, y, z):
         return is_on_board(x, y, z) and board[x][y][z] == player
-    
+
     # 初期候補: 4連続や辺埋まり（基本ライン）
-    for dx, dy, dz in DIRECTIONS:
-        for x in range(size):
-            for y in range(size):
-                for z in range(size):
-                    line = [(x + i * dx, y + i * dy, z + i * dz) for i in range(4)]
-                    if all(is_on_board(xi, yi, zi) and board[xi][yi][zi] == player for xi, yi, zi in line):
-                        stable.update(line)
+    for line in LINES:
+        if all(board[x][y][z] == player for x, y, z in line):
+            stable.update(line)
 
     # 角隣接の辺処理・囲まれ型追加
     for corner in CORNERS:
@@ -48,37 +70,14 @@ def get_stable_discs(board, player):
             if line:
                 stable.update(line)
 
-     # 拡張安定判定：確定石や盤外に囲まれ、相手に裏返されない
-    changed = True
-    while changed:
-        changed = False
-        for x in range(size):
-            for y in range(size):
-                for z in range(size):
-                    if (x, y, z) in stable or board[x][y][z] != player:
-                        continue
-                    safe = True
-                    for dx, dy, dz in DIRECTIONS:
-                        nx, ny, nz = x + dx, y + dy, z + dz
-                        while is_on_board(nx, ny, nz):
-                            stone = board[nx][ny][nz]
-                            if stone == 'empty':
-                                safe = False
-                                break
-                            if stone != player and (nx, ny, nz) not in stable:
-                                safe = False
-                                break
-                            if stone == player:
-                                break
-                            nx += dx
-                            ny += dy
-                            nz += dz
-                        if not safe:
-                            break
-                    if safe:
-                        stable.add((x, y, z))
-                        changed = True
-    
+    # 拡張安定判定：盤内の隣接マスがすべて自分の石で埋まっている石
+    for cell in ALL_CELLS:
+        x, y, z = cell
+        if cell in stable or board[x][y][z] != player:
+            continue
+        if all(board[nx][ny][nz] == player for nx, ny, nz in NEIGHBORS[cell]):
+            stable.add(cell)
+
     # 角を除外
     stable -= set(CORNERS)
     return stable
@@ -161,11 +160,12 @@ def evaluate_board(board, current_player):
                     continue
 
                 # 選出した方向だけで隣接空きマスをカウント
+                # （盤面の空きマスは 0。以前は 'empty' と比較しており常に不一致だった）
                 empty_neighbors = 0
                 for dx, dy, dz in dir_axes:
                     nx, ny, nz = x + dx, y + dy, z + dz
                     if 0 <= nx < 4 and 0 <= ny < 4 and 0 <= nz < 4:
-                        if board[nx][ny][nz] == 'empty':
+                        if board[nx][ny][nz] == 0:
                             empty_neighbors += 1
 
                 # 新しいペナルティ関数を使用
