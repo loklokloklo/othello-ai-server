@@ -1,7 +1,14 @@
 # game-AI/dfpn.py
 
+import time
 from copy import deepcopy
 from util import get_legal_moves, apply_move, is_terminal, opponent, count_discs
+
+# ========================================
+# 探索の制限（どちらかに達したら探索を打ち切る）
+# ========================================
+DFPN_TIME_LIMIT = 10.0   # 秒。メモリ使用量の増加を抑える目的もある
+DFPN_MAX_STEPS = 150_000
 
 class Node:
     """
@@ -23,20 +30,25 @@ class Node:
 
 def initialize_proof_disproof(node):
     """
-    与えられたノードが終局かどうかを調べ、
-    - 勝ち確定 (player 勝利): proof=0, disproof=INF
-    - 負け確定 (player 敗北): proof=INF, disproof=0
+    与えられたノードが終局かどうかを調べ、探索の根（AI側）から見た結果で値を設定する。
+    - AIの勝ち確定: proof=0, disproof=INF
+    - AIの負け確定: proof=INF, disproof=0
     - 引き分け: proof=INF, disproof=INF
     - 非終局: proof=1, disproof=1
+
+    ORノードの手番は常にAI、ANDノードの手番は常に相手なので、
+    ノードの手番(node.player)からAI側の色を求めて石数を比べる。
     """
     INF = float('inf')
 
     if is_terminal(node.board):
-        my_discs, opp_discs = count_discs(node.board, node.player)
-        if my_discs > opp_discs:
+        ai_player = node.player if node.is_or_node else opponent(node.player)
+        ai_discs = count_discs(node.board, ai_player)
+        opp_discs = count_discs(node.board, opponent(ai_player))
+        if ai_discs > opp_discs:
             node.proof = 0
             node.disproof = INF
-        elif my_discs < opp_discs:
+        elif ai_discs < opp_discs:
             node.proof = INF
             node.disproof = 0
         else:
@@ -112,10 +124,14 @@ def dfpn_search(board, player):
     """
     df-pn探索のメイン関数。
     残り手数が12以下で呼ばれる前提。
-    ステップ上限以内で証明／反証を進め、最善手を返す。
+    ステップ上限・時間制限以内で証明／反証を進め、勝ち筋の手を返す。
+
+    勝ち筋の手を返せなかった場合（時間切れ・ステップ上限・勝てない局面）は None を返す。
+    その場合の手の決定は、呼び出し側（ai_player.decide_move）が alpha_beta_search で行う。
     """
 
-    MAX_STEPS = 150_000
+    MAX_STEPS = DFPN_MAX_STEPS
+    start_time = time.monotonic()
     steps = 0
 
     root = Node(board, player, is_or_node=True)
@@ -124,7 +140,9 @@ def dfpn_search(board, player):
     if root.proof == 0:
         return None  # すでに勝ち確定
 
-    while root.proof != 0 and root.disproof != 0 and steps < MAX_STEPS:
+    while (root.proof != 0 and root.disproof != 0
+           and steps < MAX_STEPS
+           and time.monotonic() - start_time < DFPN_TIME_LIMIT):
         current = root
         path = [current]
 
@@ -151,4 +169,4 @@ def dfpn_search(board, player):
     for child in root.children:    
         if child.proof == 0 and child.move is not None:
             return child.move  # 勝ち筋の手
-    return None      # 勝ちが見つからなかった場合（引き分けor負け)
+    return None      # 勝ちが見つからなかった場合（時間切れ・引き分け・負け）
